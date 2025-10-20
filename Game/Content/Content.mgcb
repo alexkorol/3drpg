@@ -1,0 +1,101 @@
+
+#----------------------------- Global Properties ----------------------------#
+
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
+/platform:DesktopGL
+/config:
+/profile:Reach
+/compress:False
+
+#-------------------------------- References --------------------------------#
+
+
+#---------------------------------- Content ---------------------------------#
+
+# Textures ------------------------------------------------------------------#
+# begin build steps for texture tiles
+
+#begin Textures/floor_tan.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Textures/floor_tan.png
+#end
+
+#begin Textures/orange_brick_wall.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Textures/orange_brick_wall.png
+#end
+
+#begin Textures/mossy_brick_wall.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Textures/mossy_brick_wall.png
+#end
+
+#begin Textures/ceiling.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Textures/ceiling.png
+#end
+
+# Sprites -------------------------------------------------------------------#
+
+#begin Sprites/skeleton_front.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Sprites/skeleton_front.png
+#end
+
+#begin Sprites/troll_front.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Sprites/troll_front.png
+#end
+
+#begin Sprites/potion_red.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Sprites/potion_red.png
+#end
+
+# Particles -----------------------------------------------------------------#
+
+#begin Particles/soft_gray_smoke.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Particles/soft_gray_smoke.png
+#end
