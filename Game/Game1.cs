@@ -10,6 +10,7 @@ using Rpg3D.Engine.Graphics;
 using Rpg3D.Engine.Input;
 using Rpg3D.Engine.Rendering;
 using Rpg3D.Engine.World;
+using Rpg3D.Game.Combat;
 using Rpg3D.Game.Systems;
 
 namespace Rpg3D.Game;
@@ -26,10 +27,11 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
     private readonly ParticleSystem _particleSystem = new();
     private readonly UiSystem _uiSystem = new();
     private readonly PlayerControllerSystem _playerController = new();
+    private readonly CombatSystem _combatSystem = new();
 
     private GridMap? _map;
     private readonly List<Vector3> _torchPositions = new();
-    private readonly List<AmbientEnemy> _enemies = new();
+    private readonly EnemyRoster _enemyRoster = new();
     private readonly List<ParticleEmitter> _torchEmitters = new();
     private float _playerHealth = 10f;
     private float _playerHealthMax = 12f;
@@ -91,7 +93,11 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         LoadWorldTextures();
         LoadBillboardSprites();
         LoadParticleTextures();
-        _mapIndex = 0;
+        _mapIndex = Array.IndexOf(_mapAssets, "Maps/test_30X30.ascii");
+        if (_mapIndex < 0)
+        {
+            _mapIndex = 0;
+        }
         LoadMap(_mapAssets[_mapIndex]);
         Log("LoadContent completed.");
     }
@@ -172,6 +178,8 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         _host.RegisterService(_inputService);
         _host.RegisterService(_lighting);
         _host.RegisterService(_billboards);
+        _host.RegisterService(_enemyRoster);
+        _host.RegisterService(Content);
     }
 
     private void RegisterSystems()
@@ -181,6 +189,7 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         _host.AddSystem(_billboards);
         _host.AddSystem(_particleSystem);
         _host.AddSystem(_playerController);
+        _host.AddSystem(_combatSystem);
         _host.AddSystem(_uiSystem);
     }
 
@@ -286,7 +295,7 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
     private void ParseMarkers(IReadOnlyList<string> lines)
     {
         _torchPositions.Clear();
-        _enemies.Clear();
+        _enemyRoster.Clear();
         _torchEmitters.Clear();
         _playerSpawn = new Vector3(2.5f, 0f, -2.5f);
 
@@ -307,7 +316,7 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
                         _torchPositions.Add(center + new Vector3(0f, 1.4f, 0f));
                         break;
                     case 'E':
-                        _enemies.Add(CreateAmbientEnemy(center + new Vector3(0f, 0.4f, 0f)));
+                        _enemyRoster.Add(CreateAmbientEnemy(center + new Vector3(0f, 0.4f, 0f)));
                         break;
                 }
             }
@@ -365,6 +374,15 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         _lighting.FogColor = new Color(new Vector3(0.05f, 0.04f, 0.08f));
         _lighting.FogStart = 6f;
         _lighting.FogEnd = 32f;
+
+        _lighting.PointLights.Clear();
+        foreach (var torch in _torchPositions)
+        {
+            var lightColor = new Color(255, 200, 150);
+            var radius = 4.5f;
+            var intensity = 1.35f;
+            _lighting.PointLights.Add(new PointLight(torch, lightColor, radius, intensity));
+        }
     }
 
     private void UpdateEmitters(GameTime gameTime)
@@ -395,18 +413,32 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             _billboards.Submit(new BillboardInstance(torch + new Vector3(0f, -0.8f, 0f), new Vector2(1.2f, 0.6f), glowColor, additive: true));
         }
 
-        foreach (var enemy in _enemies)
+        foreach (var enemy in _enemyRoster.Enemies)
         {
+            if (enemy.IsDead)
+            {
+                continue;
+            }
+
+            var tint = enemy.GetCurrentTint();
             if (enemy.Sprite != null)
             {
-                _billboards.Submit(new BillboardInstance(enemy.Position, enemy.SpriteSize, enemy.Tint, enemy.Sprite));
+                _billboards.Submit(new BillboardInstance(enemy.Position, enemy.SpriteSize, tint, enemy.Sprite));
             }
             else
             {
-                _billboards.Submit(new BillboardInstance(enemy.Position, enemy.SpriteSize, enemy.Tint));
+                _billboards.Submit(new BillboardInstance(enemy.Position, enemy.SpriteSize, tint));
             }
 
             _billboards.Submit(new BillboardInstance(enemy.Position + new Vector3(0f, -0.5f, 0f), new Vector2(1.3f, 0.7f), enemy.GlowColor, additive: true));
+
+            if (enemy.HitFlashTimer > 0f)
+            {
+                var flashStrength = MathHelper.Clamp(enemy.HitFlashTimer / 0.18f, 0f, 1f);
+                var flashSize = enemy.SpriteSize * (1.1f + flashStrength * 0.6f);
+                var flashColor = Color.FromNonPremultiplied(255, 210, 120, (int)(flashStrength * 180));
+                _billboards.Submit(new BillboardInstance(enemy.Position + new Vector3(0f, 0.1f, 0f), flashSize, flashColor, additive: true));
+            }
         }
     }
 
@@ -421,28 +453,57 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         _uiSystem.PlayerHealthMax = _playerHealthMax;
         _uiSystem.EquippedItemName = "Frostbrand";
         _uiSystem.WeaponHandleColor = new Color(150, 100, 50);
-        _uiSystem.WeaponHeadColor = new Color(80, 210, 255);
-        _uiSystem.WeaponSwingOffsetX = MathHelper.Clamp(-snapshot.MouseDelta.X * 0.7f, -18f, 18f);
-        _uiSystem.WeaponBobOffsetY = MathF.Sin(total * 8f) * 8f * moveFactor;
-        _uiSystem.CrosshairColor = Color.FromNonPremultiplied(230, 240, 255, moving ? 200 : 150);
+
+        var baseSwing = MathHelper.Clamp(-snapshot.MouseDelta.X * 0.7f, -18f, 18f);
+        _uiSystem.WeaponSwingOffsetX = baseSwing;
+
+        var attackStrength = _combatSystem.AttackSwingStrength;
+        _uiSystem.WeaponAttackOffsetX = MathHelper.Lerp(0f, 34f, attackStrength);
+        _uiSystem.WeaponBobOffsetY = MathF.Sin(total * 8f) * 8f * moveFactor - attackStrength * 12f;
+
+        var hitStrength = _combatSystem.HitFlashStrength;
+        var headBase = new Color(80, 210, 255);
+        var headFlash = new Color(255, 200, 120);
+        _uiSystem.WeaponHeadColor = Color.Lerp(headBase, headFlash, MathF.Max(hitStrength, attackStrength * 0.35f));
+
+        var crosshairBase = Color.FromNonPremultiplied(230, 240, 255, moving ? 200 : 150);
+        if (hitStrength > 0f)
+        {
+            var hitColor = Color.FromNonPremultiplied(255, 150, 110, 255);
+            crosshairBase = Color.Lerp(crosshairBase, hitColor, hitStrength);
+        }
+        else if (attackStrength > 0f)
+        {
+            var swingColor = Color.FromNonPremultiplied(240, 220, 255, 220);
+            crosshairBase = Color.Lerp(crosshairBase, swingColor, attackStrength * 0.4f);
+        }
+
+        _uiSystem.CrosshairColor = crosshairBase;
     }
 
     private void UpdateEnemies(GameTime gameTime)
     {
         var time = (float)gameTime.TotalGameTime.TotalSeconds;
-        for (var i = 0; i < _enemies.Count; i++)
+        var dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+        foreach (var enemy in _enemyRoster.Enemies)
         {
-            var enemy = _enemies[i];
             var offset = new Vector3(
                 MathF.Sin(time * enemy.OrbitSpeed + enemy.Phase) * enemy.OrbitRadius,
                 MathF.Sin(time * enemy.BobSpeed + enemy.Phase) * enemy.BobHeight,
                 MathF.Cos(time * enemy.OrbitSpeed + enemy.Phase) * enemy.OrbitRadius);
             enemy.Position = enemy.Origin + offset;
-            _enemies[i] = enemy;
+
+            if (enemy.HitFlashTimer > 0f)
+            {
+                enemy.HitFlashTimer = Math.Max(0f, enemy.HitFlashTimer - dt);
+            }
         }
+
+        _enemyRoster.RemoveDead(enemy => Log($"Enemy defeated at {enemy.Position}"));
     }
 
-    private AmbientEnemy CreateAmbientEnemy(Vector3 origin)
+    private EnemyInstance CreateAmbientEnemy(Vector3 origin)
     {
         Texture2D? sprite = _enemySprites.Count > 0 ? _enemySprites[_random.Next(_enemySprites.Count)] : null;
         var tintFactor = (float)_random.NextDouble();
@@ -453,13 +514,13 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             ? new Vector2(sprite.Width / 64f, sprite.Height / 64f)
             : new Vector2(0.9f, 1.4f);
 
-        return new AmbientEnemy
+        var enemy = new EnemyInstance
         {
             Origin = origin,
             Position = origin,
             Sprite = sprite,
             SpriteSize = spriteSize,
-            Tint = tint,
+            BaseTint = tint,
             GlowColor = glow,
             OrbitRadius = 0.45f + (float)_random.NextDouble() * 0.35f,
             OrbitSpeed = 0.6f + (float)_random.NextDouble() * 0.3f,
@@ -467,6 +528,10 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             BobSpeed = 2.4f + (float)_random.NextDouble(),
             Phase = (float)_random.NextDouble() * MathHelper.TwoPi
         };
+
+        enemy.MaxHealth = 8f + (float)_random.NextDouble() * 4f;
+        enemy.Health = enemy.MaxHealth;
+        return enemy;
     }
 
     private void UpdateCameraAspectRatio()
@@ -521,20 +586,5 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         {
             // ignore logging failures
         }
-    }
-
-    private struct AmbientEnemy
-    {
-        public Vector3 Origin;
-        public Vector3 Position;
-        public Texture2D? Sprite;
-        public Vector2 SpriteSize;
-        public Color Tint;
-        public Color GlowColor;
-        public float OrbitRadius;
-        public float OrbitSpeed;
-        public float BobHeight;
-        public float BobSpeed;
-        public float Phase;
     }
 }

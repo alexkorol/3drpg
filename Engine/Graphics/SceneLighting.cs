@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 
 namespace Rpg3D.Engine.Graphics;
@@ -15,4 +16,6 @@ public sealed class SceneLighting
     public float FogStart { get; set; } = 6f;
 
     public float FogEnd { get; set; } = 30f;
+
+    public List<PointLight> PointLights { get; } = new();
 }

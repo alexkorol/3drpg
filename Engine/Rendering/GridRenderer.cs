@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Content;
 using Rpg3D.Engine.Core;
 using Rpg3D.Engine.Graphics;
 
@@ -12,28 +13,64 @@ public sealed class GridRenderer : IDrawSystem, IDisposable
     private const string LogPrefix = "[GridRenderer]";
     private GraphicsDevice? _graphicsDevice;
     private Camera3D? _camera;
-    private BasicEffect? _effect;
     private SceneLighting? _lighting;
+    private ContentManager? _content;
+    private Effect? _effect;
     private readonly List<MeshPart> _parts = new();
     private Texture2D? _fallbackTexture;
+    private EffectParameter? _worldParam;
+    private EffectParameter? _viewParam;
+    private EffectParameter? _projectionParam;
+    private EffectParameter? _ambientParam;
+    private EffectParameter? _directionalDirParam;
+    private EffectParameter? _directionalColorParam;
+    private EffectParameter? _fogColorParam;
+    private EffectParameter? _fogStartParam;
+    private EffectParameter? _fogEndParam;
+    private EffectParameter? _cameraPositionParam;
+    private EffectParameter? _pointLightCountParam;
+    private EffectParameter? _pointLightPositionParam;
+    private EffectParameter? _pointLightColorParam;
+    private EffectParameter? _pointLightRadiusParam;
+    private EffectParameter? _pointLightIntensityParam;
+    private EffectParameter? _textureParam;
+
+    private const int MaxPointLights = 8;
+    private readonly Vector3[] _pointLightPositions = new Vector3[MaxPointLights];
+    private readonly Vector3[] _pointLightColors = new Vector3[MaxPointLights];
+    private readonly float[] _pointLightRadii = new float[MaxPointLights];
+    private readonly float[] _pointLightIntensities = new float[MaxPointLights];
 
     public void Initialize(ServiceRegistry services)
     {
         _graphicsDevice = services.Require<GraphicsDevice>();
         _camera = services.Require<Camera3D>();
         _lighting = services.Require<SceneLighting>();
-        _effect = new BasicEffect(_graphicsDevice)
+        _content = services.Require<ContentManager>();
+        _effect = _content.Load<Effect>("Effects/WorldLighting");
+        if (_effect.Techniques["WorldLighting"] != null)
         {
-            TextureEnabled = true,
-            LightingEnabled = true,
-            PreferPerPixelLighting = false,
-            World = Matrix.Identity
-        };
-        _effect.EnableDefaultLighting();
-        _effect.FogEnabled = true;
-        _effect.FogColor = _lighting.FogColor.ToVector3();
-        _effect.FogStart = _lighting.FogStart;
-        _effect.FogEnd = _lighting.FogEnd;
+            _effect.CurrentTechnique = _effect.Techniques["WorldLighting"];
+        }
+
+        _worldParam = _effect.Parameters["World"];
+        _viewParam = _effect.Parameters["View"];
+        _projectionParam = _effect.Parameters["Projection"];
+        _ambientParam = _effect.Parameters["AmbientColor"];
+        _directionalDirParam = _effect.Parameters["DirectionalDirection"];
+        _directionalColorParam = _effect.Parameters["DirectionalColor"];
+        _fogColorParam = _effect.Parameters["FogColor"];
+        _fogStartParam = _effect.Parameters["FogStart"];
+        _fogEndParam = _effect.Parameters["FogEnd"];
+        _cameraPositionParam = _effect.Parameters["CameraPosition"];
+        _pointLightCountParam = _effect.Parameters["PointLightCount"];
+        _pointLightPositionParam = _effect.Parameters["PointLightPosition"];
+        _pointLightColorParam = _effect.Parameters["PointLightColor"];
+        _pointLightRadiusParam = _effect.Parameters["PointLightRadius"];
+        _pointLightIntensityParam = _effect.Parameters["PointLightIntensity"];
+        _textureParam = _effect.Parameters["BaseTexture"];
+
+        _worldParam?.SetValue(Matrix.Identity);
 
         _fallbackTexture = new Texture2D(_graphicsDevice, 1, 1);
         _fallbackTexture.SetData(new[] { Color.White });
@@ -81,18 +118,52 @@ public sealed class GridRenderer : IDrawSystem, IDisposable
             return;
         }
 
-        _effect.View = _camera.View;
-        _effect.Projection = _camera.Projection;
+        _viewParam?.SetValue(_camera.View);
+        _projectionParam?.SetValue(_camera.Projection);
+        _cameraPositionParam?.SetValue(_camera.Position);
+
         if (_lighting != null)
         {
-            _effect.AmbientLightColor = _lighting.AmbientColor.ToVector3();
-            _effect.DirectionalLight0.Enabled = true;
-            _effect.DirectionalLight0.Direction = _lighting.MainLightDirection;
-            _effect.DirectionalLight0.DiffuseColor = _lighting.MainLightColor.ToVector3();
-            _effect.DirectionalLight0.SpecularColor = Vector3.Zero;
-            _effect.FogColor = _lighting.FogColor.ToVector3();
-            _effect.FogStart = _lighting.FogStart;
-            _effect.FogEnd = _lighting.FogEnd;
+            _ambientParam?.SetValue(_lighting.AmbientColor.ToVector3());
+            _directionalDirParam?.SetValue(Vector3.Normalize(_lighting.MainLightDirection));
+            _directionalColorParam?.SetValue(_lighting.MainLightColor.ToVector3());
+            _fogColorParam?.SetValue(_lighting.FogColor.ToVector3());
+            _fogStartParam?.SetValue(_lighting.FogStart);
+            _fogEndParam?.SetValue(_lighting.FogEnd);
+
+            var pointLights = _lighting.PointLights;
+            var count = pointLights.Count;
+            if (count > MaxPointLights)
+            {
+                count = MaxPointLights;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                var light = pointLights[i];
+                _pointLightPositions[i] = light.Position;
+                _pointLightColors[i] = light.Color.ToVector3();
+                _pointLightRadii[i] = light.Radius;
+                _pointLightIntensities[i] = light.Intensity;
+            }
+
+            for (var i = count; i < MaxPointLights; i++)
+            {
+                _pointLightPositions[i] = Vector3.Zero;
+                _pointLightColors[i] = Vector3.Zero;
+                _pointLightRadii[i] = 0f;
+                _pointLightIntensities[i] = 0f;
+            }
+
+            _pointLightCountParam?.SetValue(count);
+            _pointLightPositionParam?.SetValue(_pointLightPositions);
+            _pointLightColorParam?.SetValue(_pointLightColors);
+            _pointLightRadiusParam?.SetValue(_pointLightRadii);
+            _pointLightIntensityParam?.SetValue(_pointLightIntensities);
+        }
+        else
+        {
+            _pointLightCountParam?.SetValue(0);
         }
 
         var previousRasterizer = _graphicsDevice.RasterizerState;
@@ -110,9 +181,7 @@ public sealed class GridRenderer : IDrawSystem, IDisposable
             _graphicsDevice.SetVertexBuffer(part.VertexBuffer);
             _graphicsDevice.Indices = part.IndexBuffer;
 
-            _effect.Texture = part.Texture;
-            _effect.DiffuseColor = Vector3.One;
-            _effect.Alpha = 1f;
+            _textureParam?.SetValue(part.Texture);
 
             foreach (var pass in _effect.CurrentTechnique.Passes)
             {
@@ -136,7 +205,6 @@ public sealed class GridRenderer : IDrawSystem, IDisposable
     public void Dispose()
     {
         DisposeParts();
-        _effect?.Dispose();
         _fallbackTexture?.Dispose();
     }
 

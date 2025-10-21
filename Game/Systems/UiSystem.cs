@@ -25,6 +25,8 @@ public sealed class UiSystem : IDrawSystem, IDisposable
 
     public float WeaponBobOffsetY { get; set; }
 
+    public float WeaponAttackOffsetX { get; set; }
+
     public bool ShowCrosshair { get; set; } = true;
 
     public Color CrosshairColor { get; set; } = new(230, 240, 255, 180);
@@ -90,7 +92,7 @@ public sealed class UiSystem : IDrawSystem, IDisposable
 
         var baseX = viewport.Width - 200;
         var baseY = viewport.Height - 220;
-        baseX = (int)MathF.Round(baseX + WeaponSwingOffsetX);
+        baseX = (int)MathF.Round(baseX + WeaponSwingOffsetX + WeaponAttackOffsetX);
         baseY = (int)MathF.Round(baseY + WeaponBobOffsetY);
 
         var handleRect = new Rectangle(baseX, baseY, 22, 160);

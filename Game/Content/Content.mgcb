@@ -99,3 +99,12 @@
 /processorParam:TextureFormat=Color
 /build:Particles/soft_gray_smoke.png
 #end
+
+# Effects -------------------------------------------------------------------#
+
+#begin Effects/WorldLighting.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/processorParam:DebugMode=Auto
+/build:Effects/WorldLighting.fx
+#end
