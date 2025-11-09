@@ -38,7 +38,7 @@ public static class GridMeshBuilder
     private const string WallOrangeTexture = "Textures/orange_brick_wall";
     private const string WallMossyTexture = "Textures/mossy_brick_wall";
 
-    public static GridMesh Build(GridMap map, float cellSize = 1f, float wallHeight = 2f)
+    public static GridMesh Build(GridMap map, float cellSize = 1f, float wallHeight = 2f, bool includeCeiling = true)
     {
         var builders = new Dictionary<string, MeshPartBuilder>();
 
@@ -57,12 +57,15 @@ public static class GridMeshBuilder
                         cellSize,
                         Vector3.Up);
 
-                    AddHorizontalQuad(
-                        builders.GetOrCreate(CeilingTexture),
-                        basePosition + new Vector3(0f, wallHeight, 0f),
-                        cellSize,
-                        Vector3.Down,
-                        flipWinding: true);
+                    if (includeCeiling)
+                    {
+                        AddHorizontalQuad(
+                            builders.GetOrCreate(CeilingTexture),
+                            basePosition + new Vector3(0f, wallHeight, 0f),
+                            cellSize,
+                            Vector3.Down,
+                            flipWinding: true);
+                    }
                 }
 
                 if (cell == CellType.Wall)
@@ -111,6 +114,7 @@ public static class GridMeshBuilder
         float height)
     {
         var topOffset = new Vector3(0f, height, 0f);
+        var verticalTiles = Math.Max(1f, height / size);
 
         var wallTexture = ((cellX * 73856093) ^ (cellY * 19349663)) % 100 < 50
             ? WallOrangeTexture
@@ -134,8 +138,8 @@ public static class GridMeshBuilder
                 p2,
                 p3,
                 Vector3.Left,
-                new Vector2(1f, 1f),
-                new Vector2(0f, 1f),
+                new Vector2(1f, verticalTiles),
+                new Vector2(0f, verticalTiles),
                 new Vector2(0f, 0f),
                 new Vector2(1f, 0f));
         }
@@ -153,8 +157,8 @@ public static class GridMeshBuilder
                 p3,
                 p2,
                 Vector3.Right,
-                new Vector2(1f, 1f),
-                new Vector2(0f, 1f),
+                new Vector2(1f, verticalTiles),
+                new Vector2(0f, verticalTiles),
                 new Vector2(0f, 0f),
                 new Vector2(1f, 0f));
         }
@@ -172,8 +176,8 @@ public static class GridMeshBuilder
                 p3,
                 p2,
                 Vector3.Backward,
-                new Vector2(1f, 1f),
-                new Vector2(0f, 1f),
+                new Vector2(1f, verticalTiles),
+                new Vector2(0f, verticalTiles),
                 new Vector2(0f, 0f),
                 new Vector2(1f, 0f));
         }
@@ -190,8 +194,8 @@ public static class GridMeshBuilder
                 p2,
                 p3,
                 Vector3.Forward,
-                new Vector2(1f, 1f),
-                new Vector2(0f, 1f),
+                new Vector2(1f, verticalTiles),
+                new Vector2(0f, verticalTiles),
                 new Vector2(0f, 0f),
                 new Vector2(1f, 0f));
         }

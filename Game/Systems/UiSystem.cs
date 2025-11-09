@@ -11,6 +11,8 @@ public sealed class UiSystem : IDrawSystem, IDisposable
     private SpriteBatch? _spriteBatch;
     private Texture2D? _pixel;
 
+    public bool Visible { get; set; } = true;
+
     public float PlayerHealth { get; set; } = 8f;
 
     public float PlayerHealthMax { get; set; } = 8f;
@@ -41,7 +43,7 @@ public sealed class UiSystem : IDrawSystem, IDisposable
 
     public void Draw(GameClock clock)
     {
-        if (_spriteBatch == null || _pixel == null || _graphicsDevice == null)
+        if (!Visible || _spriteBatch == null || _pixel == null || _graphicsDevice == null)
         {
             return;
         }

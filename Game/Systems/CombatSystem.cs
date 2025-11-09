@@ -109,6 +109,16 @@ public sealed class CombatSystem : IUpdateSystem
         }
     }
 
+    public void Reset()
+    {
+        _cooldownTimer = 0f;
+        _swingElapsed = 0f;
+        _attackActive = false;
+        _attackWindowConsumed = false;
+        _hitFlashTimer = 0f;
+        _lastHitEnemy = null;
+    }
+
     private void TryBeginAttack()
     {
         if (_input == null || _camera == null || _enemyRoster == null)

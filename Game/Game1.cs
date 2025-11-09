@@ -42,12 +42,26 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
     private readonly Dictionary<string, Texture2D> _worldTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Texture2D> _enemySprites = new();
     private Texture2D? _smokeTexture;
-    private readonly string[] _mapAssets = { "Maps/intro.ascii", "Maps/test_30X30.ascii" };
+    private SpriteFont? _menuFont;
+    private Texture2D? _menuPixel;
+    private float _menuPulseTimer;
     private int _mapIndex;
+    private bool _isOutdoorMap;
+    private GamePhase _phase = GamePhase.MainMenu;
     private readonly float[] _renderScaleOptions = { 0.5f, 0.6f, 0.75f, 1f };
     private int _renderScaleIndex = 1;
     private float _renderScale;
     private readonly string _logPath;
+    private MapDefinition _activeMapDefinition;
+
+    private const string DefaultDungeonMap = "Maps/test_30X30.ascii";
+    private const string OutdoorMap = "Maps/outdoor_meadow.ascii";
+    private readonly MapDefinition[] _mapDefinitions =
+    {
+        new("Maps/intro.ascii", false, "Intro Tunnel"),
+        new("Maps/test_30X30.ascii", false, "Crystal Crypt"),
+        new("Maps/outdoor_meadow.ascii", true, "Sunlit Meadow")
+    };
 
     public Game1()
     {
@@ -93,12 +107,13 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         LoadWorldTextures();
         LoadBillboardSprites();
         LoadParticleTextures();
-        _mapIndex = Array.IndexOf(_mapAssets, "Maps/test_30X30.ascii");
-        if (_mapIndex < 0)
-        {
-            _mapIndex = 0;
-        }
-        LoadMap(_mapAssets[_mapIndex]);
+        _menuFont = Content.Load<SpriteFont>("UI/MainMenuFont");
+        _menuPixel = new Texture2D(GraphicsDevice, 1, 1);
+        _menuPixel.SetData(new[] { Color.White });
+
+        _mapIndex = FindMapIndex(DefaultDungeonMap);
+        LoadMap(_mapDefinitions[_mapIndex]);
+        EnterMainMenu();
         Log("LoadContent completed.");
     }
 
@@ -112,6 +127,11 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         SubmitSceneBillboards(gameTime);
         UpdateUiState(gameTime);
 
+        if (_phase == GamePhase.MainMenu && _inputService.CaptureMouse)
+        {
+            _inputService.CaptureMouse = false;
+        }
+
         var snapshot = _inputService.Snapshot;
         if (snapshot.WasKeyPressed(Keys.F5))
         {
@@ -119,20 +139,25 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             CycleRenderScale();
         }
 
-        if (snapshot.WasKeyPressed(Keys.F6))
+        if (_mapDefinitions.Length > 0 && snapshot.WasKeyPressed(Keys.F6))
         {
-            _mapIndex = (_mapIndex + 1) % _mapAssets.Length;
-            Log($"F6 pressed - loading map '{_mapAssets[_mapIndex]}'.");
-            LoadMap(_mapAssets[_mapIndex]);
+            _mapIndex = (_mapIndex + 1) % _mapDefinitions.Length;
+            var next = _mapDefinitions[_mapIndex];
+            Log($"F6 pressed - loading map '{next.DisplayName}' ({next.AssetPath}).");
+            LoadMap(next);
         }
 
-        if (_inputService.CaptureMouse && snapshot.WasKeyPressed(Keys.Escape))
+        if (_phase == GamePhase.MainMenu)
         {
-            _inputService.CaptureMouse = false;
+            UpdateMainMenu(gameTime, snapshot);
+            if (snapshot.WasKeyPressed(Keys.Escape))
+            {
+                Exit();
+            }
         }
-        else if (!_inputService.CaptureMouse && snapshot.WasKeyPressed(Keys.Escape))
+        else if (snapshot.WasKeyPressed(Keys.Escape))
         {
-            Exit();
+            EnterMainMenu();
         }
 
         base.Update(gameTime);
@@ -166,7 +191,165 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             _postSpriteBatch.End();
         }
 
+        DrawMainMenuOverlay(gameTime);
+
         base.Draw(gameTime);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _sceneTarget?.Dispose();
+            _sceneTarget = null;
+            _postSpriteBatch?.Dispose();
+            _postSpriteBatch = null;
+            _menuPixel?.Dispose();
+            _menuPixel = null;
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private void EnterMainMenu()
+    {
+        _phase = GamePhase.MainMenu;
+        _inputService.CaptureMouse = false;
+        _uiSystem.Visible = false;
+        _uiSystem.ShowCrosshair = false;
+        _combatSystem.Reset();
+    }
+
+    private void BeginDungeonRun()
+    {
+        BeginMap(FindMapIndex(DefaultDungeonMap));
+    }
+
+    private void BeginOutdoorRun()
+    {
+        BeginMap(FindMapIndex(OutdoorMap));
+    }
+
+    private void BeginMap(int mapIndex)
+    {
+        if (_mapDefinitions.Length == 0)
+        {
+            return;
+        }
+
+        mapIndex = Math.Clamp(mapIndex, 0, _mapDefinitions.Length - 1);
+        _mapIndex = mapIndex;
+        var definition = _mapDefinitions[_mapIndex];
+        LoadMap(definition);
+        _phase = GamePhase.Playing;
+        _uiSystem.Visible = true;
+        _uiSystem.ShowCrosshair = true;
+        _inputService.CaptureMouse = true;
+    }
+
+    private void UpdateMainMenu(GameTime gameTime, InputSnapshot snapshot)
+    {
+        _menuPulseTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+        if (_phase != GamePhase.MainMenu)
+        {
+            return;
+        }
+
+        if (snapshot.WasKeyPressed(Keys.Enter) ||
+            snapshot.WasKeyPressed(Keys.Space) ||
+            snapshot.WasKeyPressed(Keys.D1) ||
+            snapshot.WasKeyPressed(Keys.NumPad1))
+        {
+            BeginDungeonRun();
+            return;
+        }
+
+        if (snapshot.WasKeyPressed(Keys.D2) || snapshot.WasKeyPressed(Keys.NumPad2))
+        {
+            BeginOutdoorRun();
+        }
+    }
+
+    private void DrawMainMenuOverlay(GameTime gameTime)
+    {
+        if (_phase != GamePhase.MainMenu || _menuFont == null)
+        {
+            return;
+        }
+
+        _postSpriteBatch ??= new SpriteBatch(GraphicsDevice);
+        var spriteBatch = _postSpriteBatch;
+        spriteBatch.Begin(
+            SpriteSortMode.Deferred,
+            BlendState.NonPremultiplied,
+            SamplerState.LinearClamp,
+            DepthStencilState.None,
+            RasterizerState.CullNone);
+
+        var viewport = GraphicsDevice.Viewport;
+        var center = new Vector2(viewport.Width / 2f, viewport.Height / 2f);
+        var panelWidth = Math.Min(viewport.Width - 80, 760);
+        var panelHeight = 300;
+        if (_menuPixel != null)
+        {
+            var panelRect = new Rectangle(
+                (int)(center.X - panelWidth / 2f),
+                (int)(center.Y - panelHeight / 2f),
+                panelWidth,
+                panelHeight);
+            var border = panelRect;
+            border.Inflate(6, 6);
+            spriteBatch.Draw(_menuPixel, border, Color.FromNonPremultiplied(6, 4, 10, 180));
+            spriteBatch.Draw(_menuPixel, panelRect, Color.FromNonPremultiplied(24, 18, 36, 235));
+        }
+
+        var pulse = 0.5f + 0.5f * MathF.Sin(_menuPulseTimer * 2.4f);
+        var highlight = Color.Lerp(new Color(150, 200, 255), Color.White, pulse);
+        var accent = Color.Lerp(new Color(170, 210, 255), new Color(230, 240, 255), pulse * 0.5f);
+        var textY = center.Y - 90f;
+
+        var sceneLabel = string.IsNullOrWhiteSpace(_activeMapDefinition.DisplayName)
+            ? "Unknown Scene"
+            : _activeMapDefinition.DisplayName;
+
+        DrawCenteredString(spriteBatch, _menuFont, "3D RPG Prototype", new Vector2(center.X, textY), Color.White);
+        textY += 36f;
+        DrawCenteredString(spriteBatch, _menuFont, $"Current Scene: {sceneLabel}", new Vector2(center.X, textY), new Color(210, 200, 235));
+
+        textY += 56f;
+        DrawCenteredString(spriteBatch, _menuFont, "1 - Enter the Crystal Crypt", new Vector2(center.X, textY), highlight);
+        textY += 44f;
+        DrawCenteredString(spriteBatch, _menuFont, "2 - Explore the Sunlit Meadow", new Vector2(center.X, textY), accent);
+
+        textY += 54f;
+        DrawCenteredString(spriteBatch, _menuFont, "F5: Render Scale   F6: Cycle Maps", new Vector2(center.X, textY), new Color(180, 180, 200));
+        textY += 34f;
+        DrawCenteredString(spriteBatch, _menuFont, "Esc: Quit Game", new Vector2(center.X, textY), new Color(170, 160, 180));
+
+        spriteBatch.End();
+    }
+
+    private void DrawCenteredString(SpriteBatch batch, SpriteFont font, string text, Vector2 position, Color color)
+    {
+        var size = font.MeasureString(text);
+        var origin = size * 0.5f;
+        var shadowOffset = new Vector2(2f, 2f);
+        batch.DrawString(font, text, position - origin + shadowOffset, Color.Black * 0.6f);
+        batch.DrawString(font, text, position - origin, color);
+    }
+
+    private int FindMapIndex(string assetPath)
+    {
+        for (var i = 0; i < _mapDefinitions.Length; i++)
+        {
+            if (string.Equals(_mapDefinitions[i].AssetPath, assetPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     private void RegisterServices()
@@ -258,8 +441,9 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         }
     }
 
-    private void LoadMap(string assetPath)
+    private void LoadMap(MapDefinition definition)
     {
+        var assetPath = definition.AssetPath;
         var contentPath = Path.Combine(Content.RootDirectory, assetPath).Replace('\\', '/');
         Log($"Attempting to load map stream '{contentPath}'.");
 
@@ -275,20 +459,25 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
 
             ParseMarkers(lines);
             _map = AsciiMapLoader.FromLines(lines);
+            _isOutdoorMap = definition.IsOutdoor;
+            _activeMapDefinition = definition;
 
-            var mesh = GridMeshBuilder.Build(_map, cellSize: 1f, wallHeight: 2.5f);
+            var wallHeight = definition.IsOutdoor ? 3.2f : 2.5f;
+            var includeCeiling = !definition.IsOutdoor;
+            var mesh = GridMeshBuilder.Build(_map, cellSize: 1f, wallHeight: wallHeight, includeCeiling: includeCeiling);
             _gridRenderer.SetMesh(mesh, _worldTextures);
             _playerController.SetMap(_map);
             _playerController.SetSpawnPoint(_playerSpawn);
+            _combatSystem.Reset();
             SpawnTorchEmitters();
 
-            Log($"Loaded map '{assetPath}' with {mesh.Parts.Count} mesh parts.");
+            Log($"Loaded map '{definition.DisplayName}' ({assetPath}) with {mesh.Parts.Count} mesh parts.");
             Log($"Player spawn world position: {_playerSpawn}");
             Log($"Torch count: {_torchPositions.Count}");
         }
         catch (Exception ex)
         {
-            Log($"Failed to load map '{assetPath}': {ex}");
+            Log($"Failed to load map '{definition.DisplayName}' ({assetPath}): {ex}");
         }
     }
 
@@ -316,7 +505,7 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
                         _torchPositions.Add(center + new Vector3(0f, 1.4f, 0f));
                         break;
                     case 'E':
-                        _enemyRoster.Add(CreateAmbientEnemy(center + new Vector3(0f, 0.4f, 0f)));
+                        _enemyRoster.Add(CreateAmbientEnemy(center));
                         break;
                 }
             }
@@ -333,19 +522,25 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         _torchEmitters.Clear();
         _particleSystem.ClearEmitters();
 
+        var spawnRate = _isOutdoorMap ? 10f : 18f;
+        var startSize = _isOutdoorMap ? 0.45f : 0.35f;
+        var endSize = _isOutdoorMap ? 0.15f : 0.1f;
+        var startColor = _isOutdoorMap ? new Color(255, 200, 110, 210) : new Color(255, 180, 80, 220);
+        var endColor = _isOutdoorMap ? new Color(255, 120, 60, 0) : new Color(255, 80, 40, 0);
+
         foreach (var torchPos in _torchPositions)
         {
             var emitter = new ParticleEmitter
             {
                 Position = torchPos,
                 Direction = Vector3.Up,
-                SpawnRate = 18f,
+                SpawnRate = spawnRate,
                 MinSpeed = 0.2f,
                 MaxSpeed = 0.6f,
-                StartSize = 0.35f,
-                EndSize = 0.1f,
-                StartColor = new Color(255, 180, 80, 220),
-                EndColor = new Color(255, 80, 40, 0),
+                StartSize = startSize,
+                EndSize = endSize,
+                StartColor = startColor,
+                EndColor = endColor,
                 MinLifetime = 0.35f,
                 MaxLifetime = 0.7f,
                 Additive = true,
@@ -360,27 +555,45 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
     private void UpdateLighting(GameTime gameTime)
     {
         var t = (float)gameTime.TotalGameTime.TotalSeconds;
-        var flicker = 0.12f * MathF.Sin(t * 3.3f) + 0.05f * MathF.Sin(t * 4.7f + 1.2f);
+        if (_isOutdoorMap)
+        {
+            var daylight = 0.08f * MathF.Sin(t * 0.35f) + 0.03f * MathF.Sin(t * 0.73f + 1.1f);
+            var sunBase = new Vector3(0.95f, 0.92f, 0.85f);
+            var sun = Vector3.Clamp(sunBase + new Vector3(daylight * 0.4f, daylight * 0.3f, daylight * 0.2f), Vector3.Zero, Vector3.One);
+            _lighting.MainLightColor = new Color(sun);
 
-        var mainBase = new Vector3(0.72f, 0.62f, 0.54f);
-        var main = Vector3.Clamp(mainBase + new Vector3(flicker * 0.25f, flicker * 0.2f, flicker * 0.12f), Vector3.Zero, Vector3.One);
-        _lighting.MainLightColor = new Color(main);
+            var ambientBase = new Vector3(0.42f, 0.5f, 0.64f);
+            var ambient = Vector3.Clamp(ambientBase + new Vector3(daylight * 0.25f), Vector3.Zero, Vector3.One);
+            _lighting.AmbientColor = new Color(ambient);
+            _lighting.MainLightDirection = Vector3.Normalize(new Vector3(-0.3f, -1.1f, 0.2f));
+            _lighting.FogColor = new Color(new Vector3(0.78f, 0.85f, 0.93f));
+            _lighting.FogStart = 14f;
+            _lighting.FogEnd = 100f;
+        }
+        else
+        {
+            var flicker = 0.12f * MathF.Sin(t * 3.3f) + 0.05f * MathF.Sin(t * 4.7f + 1.2f);
 
-        var ambientBase = new Vector3(0.12f, 0.12f, 0.18f);
-        var ambient = Vector3.Clamp(ambientBase + new Vector3(flicker * 0.08f), Vector3.Zero, Vector3.One);
-        _lighting.AmbientColor = new Color(ambient);
+            var mainBase = new Vector3(0.72f, 0.62f, 0.54f);
+            var main = Vector3.Clamp(mainBase + new Vector3(flicker * 0.25f, flicker * 0.2f, flicker * 0.12f), Vector3.Zero, Vector3.One);
+            _lighting.MainLightColor = new Color(main);
 
-        _lighting.MainLightDirection = Vector3.Normalize(new Vector3(-0.55f, -1.1f, 0.35f));
-        _lighting.FogColor = new Color(new Vector3(0.05f, 0.04f, 0.08f));
-        _lighting.FogStart = 6f;
-        _lighting.FogEnd = 32f;
+            var ambientBase = new Vector3(0.12f, 0.12f, 0.18f);
+            var ambient = Vector3.Clamp(ambientBase + new Vector3(flicker * 0.08f), Vector3.Zero, Vector3.One);
+            _lighting.AmbientColor = new Color(ambient);
+
+            _lighting.MainLightDirection = Vector3.Normalize(new Vector3(-0.55f, -1.1f, 0.35f));
+            _lighting.FogColor = new Color(new Vector3(0.05f, 0.04f, 0.08f));
+            _lighting.FogStart = 6f;
+            _lighting.FogEnd = 32f;
+        }
 
         _lighting.PointLights.Clear();
         foreach (var torch in _torchPositions)
         {
-            var lightColor = new Color(255, 200, 150);
-            var radius = 4.5f;
-            var intensity = 1.35f;
+            var lightColor = _isOutdoorMap ? new Color(255, 210, 150) : new Color(255, 200, 150);
+            var radius = _isOutdoorMap ? 6f : 4.5f;
+            var intensity = _isOutdoorMap ? 0.9f : 1.35f;
             _lighting.PointLights.Add(new PointLight(torch, lightColor, radius, intensity));
         }
     }
@@ -444,6 +657,16 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
 
     private void UpdateUiState(GameTime gameTime)
     {
+        if (_phase != GamePhase.Playing)
+        {
+            _uiSystem.Visible = false;
+            _uiSystem.ShowCrosshair = false;
+            return;
+        }
+
+        _uiSystem.Visible = true;
+        _uiSystem.ShowCrosshair = true;
+
         var snapshot = _inputService.Snapshot;
         var total = (float)gameTime.TotalGameTime.TotalSeconds;
         var moving = snapshot.IsKeyDown(Keys.W) || snapshot.IsKeyDown(Keys.A) || snapshot.IsKeyDown(Keys.S) || snapshot.IsKeyDown(Keys.D);
@@ -488,11 +711,18 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
 
         foreach (var enemy in _enemyRoster.Enemies)
         {
-            var offset = new Vector3(
-                MathF.Sin(time * enemy.OrbitSpeed + enemy.Phase) * enemy.OrbitRadius,
-                MathF.Sin(time * enemy.BobSpeed + enemy.Phase) * enemy.BobHeight,
-                MathF.Cos(time * enemy.OrbitSpeed + enemy.Phase) * enemy.OrbitRadius);
-            enemy.Position = enemy.Origin + offset;
+            var orbitPhase = time * enemy.OrbitSpeed + enemy.Phase;
+            var orbit = new Vector3(
+                MathF.Sin(orbitPhase) * enemy.OrbitRadius,
+                0f,
+                MathF.Cos(orbitPhase) * enemy.OrbitRadius);
+
+            var bobPhase = time * enemy.BobSpeed + enemy.Phase * 1.37f;
+            var bob = (MathF.Sin(bobPhase) + 1f) * 0.5f * enemy.BobHeight;
+
+            var position = enemy.Origin + orbit;
+            position.Y = enemy.Origin.Y + bob;
+            enemy.Position = position;
 
             if (enemy.HitFlashTimer > 0f)
             {
@@ -514,18 +744,21 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
             ? new Vector2(sprite.Width / 64f, sprite.Height / 64f)
             : new Vector2(0.9f, 1.4f);
 
+        var baseHeight = spriteSize.Y * 0.5f + 0.02f;
+        var groundedOrigin = new Vector3(origin.X, baseHeight, origin.Z);
+
         var enemy = new EnemyInstance
         {
-            Origin = origin,
-            Position = origin,
+            Origin = groundedOrigin,
+            Position = groundedOrigin,
             Sprite = sprite,
             SpriteSize = spriteSize,
             BaseTint = tint,
             GlowColor = glow,
-            OrbitRadius = 0.45f + (float)_random.NextDouble() * 0.35f,
-            OrbitSpeed = 0.6f + (float)_random.NextDouble() * 0.3f,
-            BobHeight = 0.2f + (float)_random.NextDouble() * 0.15f,
-            BobSpeed = 2.4f + (float)_random.NextDouble(),
+            OrbitRadius = 0.45f + (float)_random.NextDouble() * 0.25f,
+            OrbitSpeed = 0.55f + (float)_random.NextDouble() * 0.25f,
+            BobHeight = 0.06f + (float)_random.NextDouble() * 0.04f,
+            BobSpeed = 1.4f + (float)_random.NextDouble() * 0.7f,
             Phase = (float)_random.NextDouble() * MathHelper.TwoPi
         };
 
@@ -586,5 +819,13 @@ public sealed class Game1 : Microsoft.Xna.Framework.Game
         {
             // ignore logging failures
         }
+    }
+
+    private readonly record struct MapDefinition(string AssetPath, bool IsOutdoor, string DisplayName);
+
+    private enum GamePhase
+    {
+        MainMenu,
+        Playing
     }
 }

@@ -108,3 +108,13 @@
 /processorParam:DebugMode=Auto
 /build:Effects/WorldLighting.fx
 #end
+
+# UI ------------------------------------------------------------------------#
+
+#begin UI/MainMenuFont.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:UI/MainMenuFont.spritefont
+#end
